@@ -1,0 +1,14 @@
+{
+  "name": "video.js",
+  "homepage": "https://github.com/videojs/video.js",
+  "version": "7.8.4",
+  "_release": "7.8.4",
+  "_resolution": {
+    "type": "version",
+    "tag": "v7.8.4",
+    "commit": "d8a88ba497984d41757c4da3c3d9834da1fbae58"
+  },
+  "_source": "https://github.com/videojs/video.js.git",
+  "_target": "^7.8.1",
+  "_originalSource": "video.js"
+}

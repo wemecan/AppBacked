@@ -1,0 +1,12 @@
+/.idea
+/.vscode
+/.git
+/_bak
+/_docs
+/vendor
+composer.phar
+composer.lock
+.DS_Store
+Thumbs.db
+.env
+

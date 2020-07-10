@@ -1,0 +1,15 @@
+{
+  "name": "fluid-player",
+  "homepage": "https://github.com/fluid-player/fluid-player",
+  "version": "3.0.4",
+  "_release": "3.0.4",
+  "_resolution": {
+    "type": "version",
+    "tag": "v3.0.4",
+    "commit": "ba6253869ecebd2cde97ab608bce6749ac574cc5"
+  },
+  "_source": "https://github.com/fluid-player/fluid-player.git",
+  "_target": "^3.0.4",
+  "_originalSource": "fluid-player",
+  "_direct": true
+}

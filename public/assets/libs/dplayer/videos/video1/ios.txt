@@ -1,0 +1,3 @@
+<video class="html5videoplayer" width="480" height="320" autoplay controls  poster="">
+    <source src="http://wos1.smartcast.com.mx:1935/live/0xqrnk758_1_1@119312/0xqrnk758_1_1@119312.m3u8" type="video/mp4"></source>
+</video>

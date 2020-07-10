@@ -1,0 +1,17 @@
+<div id="player"></div>
+
+<script type="text/javascript" src="http://cdn.octoshape.net/resources/player/infinitehd2/swfobject.js"></script>
+<script type="text/javascript">
+	//var player_clientList = "swf";
+	var player_id = "player";
+	var player_width = 720;
+	var player_height = 480;
+	
+	//optional. starts the stream when the player is ready
+	var player_stream = "octoshape://streams.octoshape.net/dimtec/live/tecmilenio/ch1/abr";
+	var player_language = "es";
+	
+	var params = {allowFullScreen: true, scale: 'noscale', allowScriptAccess: 'always'};
+	var attributes = {id: player_id, name: player_id};
+	swfobject.embedSWF('http://cdn.octoshape.net/resources/player/infinitehd2/player.swf', player_id, player_width, player_height, '10.0.0', null, null, params, attributes);
+</script>

@@ -1,0 +1,898 @@
+Index: app/ExceptionHandle.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/ExceptionHandle.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/ExceptionHandle.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -38,6 +38,7 @@
+      */
+     public function report(Throwable $exception): void
+     {
++        hook('app_exception_report', ['exception'=>$exception,'ignoreReport'=>$this->ignoreReport]);
+         // 使用内置的方式记录异常日志
+         parent::report($exception);
+     }
+@@ -52,6 +53,7 @@
+      */
+     public function render($request, Throwable $e): Response
+     {
++        hook('app_exception', $e);
+         // 添加自定义异常处理机制
+         // 其他错误交给系统处理
+         return parent::render($request, $e);
+Index: app/admin/ExceptionHandle.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/ExceptionHandle.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/ExceptionHandle.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -40,6 +40,7 @@
+      */
+     public function report(Throwable $exception): void
+     {
++        hook('app_exception_report', ['exception'=>$exception,'ignoreReport'=>$this->ignoreReport]);
+         // 使用内置的方式记录异常日志
+         parent::report($exception);
+     }
+@@ -57,6 +58,7 @@
+         if ($e instanceof ValidateException) {
+             $this->error($e->getMessage(), '', '', 3, ['__token__' => $request->buildToken()]);
+         }
++        hook('admin_exception', $e);
+         // 添加自定义异常处理机制
+         // 其他错误交给系统处理
+         return parent::render($request, $e);
+Index: app/admin/command/Api.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/command/Api.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/command/Api.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -73,7 +73,7 @@
+         // 模块
+         $module = $input->getOption('module');
+ 
+-        $moduleDir = APP_PATH.$module.DIRECTORY_SEPARATOR;
++        $moduleDir = app()->getBasePath().$module.DIRECTORY_SEPARATOR;
+         if (! is_dir($moduleDir)) {
+             throw new Exception('module not found');
+         }
+@@ -91,7 +91,7 @@
+             }
+         }
+ 
+-        $controllerDir = $moduleDir.Config::get('url_controller_layer').DIRECTORY_SEPARATOR;
++        $controllerDir = $moduleDir.Config::get('route.controller_layer').DIRECTORY_SEPARATOR;
+         $files = new \RecursiveIteratorIterator(
+             new \RecursiveDirectoryIterator($controllerDir),
+             \RecursiveIteratorIterator::LEAVES_ONLY
+@@ -112,6 +112,7 @@
+             'apiurl'      => $url,
+             'language'    => $language,
+         ];
++
+         $builder = new Builder($classes);
+         $content = $builder->render($template_file, ['config' => $config, 'lang' => $lang]);
+ 
+Index: app/admin/command/Api/library/Builder.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/command/Api/library/Builder.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/command/Api/library/Builder.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -40,7 +40,8 @@
+     public function __construct($classes = [])
+     {
+         $this->classes = array_merge($this->classes, $classes);
+-        $this->view = new \think\View(Config::get('view'), Config::get('view_replace_str'));
++        //$this->view = new \think\View(Config::get('view'), Config::get('view_replace_str'));
++        $this->view = \think\facade\View::instance();
+     }
+ 
+     protected function extractAnnotations()
+@@ -173,14 +174,15 @@
+         $sectorArr = [];
+         foreach ($allClassAnnotations as $index => $allClassAnnotation) {
+             $sector = isset($allClassAnnotation['ApiSector']) ? $allClassAnnotation['ApiSector'][0] : $allClassAnnotation['ApiTitle'][0];
++            $sector = $this->removeStrDot($sector);
+             $sectorArr[$sector] = isset($allClassAnnotation['ApiWeigh']) ? $allClassAnnotation['ApiWeigh'][0] : 0;
+         }
+         arsort($sectorArr);
+-        $routes = include_once CONF_PATH.'route.php';
++        //$routes = include_once CONF_PATH.'route.php';
+         $subdomain = false;
+-        if (config('url_domain_deploy') && isset($routes['__domain__']) && isset($routes['__domain__']['api']) && $routes['__domain__']['api']) {
+-            $subdomain = true;
+-        }
++        //if (config('url_domain_deploy') && isset($routes['__domain__']) && isset($routes['__domain__']['api']) && $routes['__domain__']['api']) {
++          //  $subdomain = true;
++        //}
+         $counter = 0;
+         $section = null;
+         $weigh = 0;
+@@ -192,6 +194,7 @@
+                 } else {
+                     $section = $class;
+                 }
++                $section = $this->removeStrDot($section);
+                 if (0 === count($docs)) {
+                     continue;
+                 }
+@@ -199,13 +202,15 @@
+                 if ($subdomain) {
+                     $route = substr($route, 4);
+                 }
++                //var_dump($section,$name);
+                 $docslist[$section][$name] = [
+                     'id'                => $counter,
+                     'method'            => is_array($docs['ApiMethod'][0]) ? $docs['ApiMethod'][0]['data'] : $docs['ApiMethod'][0],
+                     'method_label'      => $this->generateBadgeForMethod($docs),
+                     'section'           => $section,
+                     'route'             => $route,
+-                    'title'             => is_array($docs['ApiTitle'][0]) ? $docs['ApiTitle'][0]['data'] : $docs['ApiTitle'][0],
++                    //'title'             => is_array($docs['ApiTitle'][0]) ? $docs['ApiTitle'][0]['data'] : $docs['ApiTitle'][0],
++                    'title'             => $this->removeStrDot(is_array($docs['ApiTitle'][0]) ? $docs['ApiTitle'][0]['data'] : $docs['ApiTitle'][0]),
+                     'summary'           => is_array($docs['ApiSummary'][0]) ? $docs['ApiSummary'][0]['data'] : $docs['ApiSummary'][0],
+                     'body'              => isset($docs['ApiBody'][0]) ? is_array($docs['ApiBody'][0]) ? $docs['ApiBody'][0]['data'] : $docs['ApiBody'][0] : '',
+                     'headerslist'       => $this->generateHeadersTemplate($docs),
+@@ -252,4 +257,20 @@
+ 
+         return $this->view->display(file_get_contents($template), array_merge($vars, ['docslist' => $docslist]));
+     }
++
++    /**
++     * 去掉字符串结尾点字符
++     *
++     * @param  string  $str
++     *
++     * @return string
++     */
++    private function removeStrDot($str='')
++    {
++        if (mb_substr($str,-1) == '.'){
++            $str = mb_substr($str,0,-1);
++        }
++        return $str;
++    }
++
+ }
+Index: app/admin/command/Api/library/Extractor.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/command/Api/library/Extractor.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/command/Api/library/Extractor.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -255,15 +255,18 @@
+             $urlArr = [];
+             $className = $class->getName();
+ 
+-            [$prefix, $suffix] = explode('\\'.\think\Config::get('url_controller_layer').'\\', $className);
++            //[$prefix, $suffix] = explode('\\'.\think\Config::get('url_controller_layer').'\\', $className);
++            [$prefix, $suffix] = explode('\\'.\think\facade\Config::get('route.controller_layer').'\\', $className);
+             $prefixArr = explode('\\', $prefix);
+             $suffixArr = explode('\\', $suffix);
+-            if ($prefixArr[0] == \think\Config::get('app_namespace')) {
++            //if ($prefixArr[0] == \think\Config::get('app_namespace')) {
++            if ($prefixArr[0] == \think\facade\Config::get('app.app_namespace')?:'app' ) {
+                 $prefixArr[0] = '';
+             }
+             $urlArr = array_merge($urlArr, $prefixArr);
+             $urlArr[] = implode('.', array_map(function ($item) {
+-                return \think\parseName($item);
++                return parseName($item);
++                //return \think\parseName($item);
+             }, $suffixArr));
+             $urlArr[] = $method->getName();
+ 
+Index: app/admin/command/Api/template/index.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/command/Api/template/index.html	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/command/Api/template/index.html	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -7,13 +7,10 @@
+         <meta name="description" content="">
+         <meta name="author" content="{$config.author}">
+         <title>{$config.title}</title>
+-
+         <!-- Bootstrap Core CSS -->
+         <link href="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
+-
+         <!-- Plugin CSS -->
+         <link href="https://cdn.staticfile.org/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+-
+         <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+         <!--[if lt IE 9]>
+         <script src="https://cdn.staticfile.org/html5shiv/3.7.3/html5shiv.min.js"></script>
+@@ -123,7 +120,7 @@
+                             Apiurl:
+                         </div>
+                         <div class="form-group">
+-                            <input id="apiUrl" type="text" class="form-control input-sm" data-toggle="tooltip" title="{$lang.Apiurltips}" placeholder="https://api.mydomain.com" value="{$config.apiurl}" />
++                            <input id="apiUrl" type="text" class="form-control input-sm" data-toggle="tooltip" title="{$lang.Apiurltips}" placeholder="" value="{$config.apiurl}" />
+                         </div>
+                         <div class="form-group">
+                             <button type="button" class="btn btn-success btn-sm" data-toggle="tooltip" title="{$lang.Savetips}" id="save_data">
+@@ -254,8 +251,8 @@
+                                                     <div class="headers">
+                                                         {foreach name="api['headerslist']" id="param"}
+                                                         <div class="form-group">
+-                                                            <label class="control-label" for="{$param.name}">{$param.name}</label>
+-                                                            <input type="{$param.type}" class="form-control input-sm" id="{$param.name}" {if $param.required}required{/if} placeholder="{$param.description} - Ex: {$param.sample}" name="{$param.name}">
++                                                            <label class="control-label" for="{$param.name}-{$api.id}">{$param.name}</label>
++                                                            <input type="{$param.type}" class="form-control input-sm" id="{$param.name}-{$api.id}" {if $param.required}required{/if} placeholder="{$param.description} - Ex: {$param.sample}" name="{$param.name}">
+                                                         </div>
+                                                         {/foreach}
+                                                     </div>
+@@ -269,8 +266,8 @@
+                                                         {if $api.paramslist}
+                                                         {foreach name="api['paramslist']" id="param"}
+                                                         <div class="form-group">
+-                                                            <label class="control-label" for="{$param.name}">{$param.name}</label>
+-                                                            <input type="{$param.type}" class="form-control input-sm" id="{$param.name}" {if $param.required}required{/if} placeholder="{$param.description}{if $param.sample} - 例: {$param.sample}{/if}" name="{$param.name}">
++                                                            <label class="control-label" for="{$param.name}-{$api.id}">{$param.name}</label>
++                                                            <input type="{$param.type}" class="form-control input-sm" id="{$param.name}-{$api.id}" {if $param.required}required{/if} placeholder="{$param.description}{if $param.sample} - 例: {$param.sample}{/if}" name="{$param.name}">
+                                                         </div>
+                                                         {/foreach}
+                                                         {else /}
+Index: app/admin/command/Crud.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/command/Crud.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/command/Crud.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -415,7 +415,8 @@
+         $editFile = $viewDir.'edit.html';
+         $indexFile = $viewDir.'index.html';
+         $recyclebinFile = $viewDir.'recyclebin.html';
+-        $langFile = $adminPath.'lang'.DIRECTORY_SEPARATOR.Lang::detect(app()->request).DIRECTORY_SEPARATOR.$controllerBaseName.'.php';
++        //$langFile = $adminPath.'lang'.DIRECTORY_SEPARATOR.Lang::detect(app()->request).DIRECTORY_SEPARATOR.$controllerBaseName.'.php';
++        $langFile = $adminPath.'lang'.DIRECTORY_SEPARATOR.'zh-cn'.DIRECTORY_SEPARATOR.$controllerBaseName.'.php';
+ 
+         //是否为删除模式
+         $delete = $input->getOption('delete');
+@@ -979,7 +980,8 @@
+ 
+         //继续生成菜单
+         if ($menu) {
+-            exec("php think menu -c {$controllerUrl}");
++            //exec("php think menu -c {$controllerUrl}");
++            exec("php think menu -c {$originControllerUrl}");
+         }
+ 
+         $output->info('Build Successed');
+Index: app/admin/controller/Addon.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/controller/Addon.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/controller/Addon.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -336,7 +336,12 @@
+         $onlineaddons = Cache::get('onlineaddons');
+         if (! is_array($onlineaddons)) {
+             $onlineaddons = [];
+-            $result = Http::sendRequest(config('fastadmin.api_url').'/addon/index');
++            //$result = Http::sendRequest(config('fastadmin.api_url').'/addon/index');
++            $result = Http::sendRequest(config('fastadmin.api_url') . '/addon/index', [], 'GET', [
++                CURLOPT_HTTPHEADER => ['Accept-Encoding:gzip'],
++                CURLOPT_ENCODING   => "gzip"
++            ]);
++
+             if ($result['ret']) {
+                 $json = (array) json_decode($result['msg'], true);
+                 $rows = isset($json['rows']) ? $json['rows'] : [];
+Index: app/admin/controller/Ajax.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/controller/Ajax.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/controller/Ajax.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1,18 +1,8 @@
+ <?php
+-/**
+- * *
+- *  * ============================================================================
+- *  * Created by PhpStorm.
+- *  * User: Ice
+- *  * 邮箱: ice@sbing.vip
+- *  * 网址: https://sbing.vip
+- *  * Date: 2019/9/19 下午3:33
+- *  * ============================================================================.
+- */
+-
+ namespace app\admin\controller;
+ 
+ use think\facade\Db;
++use think\facade\Event;
+ use think\facade\Lang;
+ use think\AddonService;
+ use think\facade\Cache;
+@@ -121,16 +111,26 @@
+         }
+ 
+         //上传图片
+-        $validate = "filesize:{$size}|fileExt:jpg,png,gif,jpeg,bmp,webp";
+-        $savename = false;
++        $_validate[] = 'filesize:'.$size;
++        if ($upload['mimetype']) {
++            $_validate[] = 'fileExt:'.$upload['mimetype'];
++        }
++        $validate = implode('|', $_validate);
++
++        $event_config = Event::trigger('upload_init', $upload,true);
++        if($event_config){
++            $upload = array_merge($upload, $event_config);
++        }
+ 
+         try {
+-            $savename = upload_file($file, 'public', 'uploads', $validate);
++            //$savename = upload_file($file, 'public', 'uploads', $validate);
++            $savename = upload_file($file, $upload['driver'], 'uploads', $validate, $upload['cdnurl']);
+         } catch (\Exception $e) {
++            $savename = false;
+             $this->error($e->getMessage());
+         }
+ 
+-        if (! $savename) {
++        if (!$savename) {
+             $this->error('上传失败');
+         }
+         $params = [
+@@ -144,7 +144,7 @@
+             'mimetype'    => $fileInfo['type'],
+             'url'         => $savename,
+             'uploadtime'  => time(),
+-            'storage'     => 'local',
++            'storage'     => $upload['driver'],
+             'sha1'        => $sha1,
+             'extparam'    => json_encode($extparam),
+         ];
+Index: app/admin/controller/user/User.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/controller/user/User.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/controller/user/User.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -3,6 +3,7 @@
+ namespace app\admin\controller\user;
+ 
+ use app\common\controller\Backend;
++use app\common\library\Auth;
+ 
+ /**
+  * 会员管理.
+@@ -13,6 +14,7 @@
+ {
+     protected $relationSearch = true;
+ 
++    protected $searchFields = 'id,username,nickname';
+     /**
+      * @var \app\admin\model\User
+      */
+@@ -64,8 +66,12 @@
+      */
+     public function edit($ids = null)
+     {
+-        $row = $this->model->get($ids);
+-        if (! $row) {
++        if ($this->request->isPost()) {
++            $this->token();
++        }
++        $row                 = $this->model->get($ids);
++        $this->modelValidate = true;
++        if (!$row) {
+             $this->error(__('No Results were found'));
+         }
+         $this->view->assign('groupList',
+@@ -74,4 +80,18 @@
+ 
+         return parent::edit($ids);
+     }
++
++    /**
++     * 删除
++     */
++    public function del($ids = "")
++    {
++        $row                 = $this->model->get($ids);
++        $this->modelValidate = true;
++        if (!$row) {
++            $this->error(__('No Results were found'));
++        }
++        Auth::instance()->delete($row['id']);
++        $this->success();
++    }
+ }
+Index: app/admin/library/traits/Backend.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/library/traits/Backend.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/library/traits/Backend.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1,17 +1,8 @@
+ <?php
+-/**
+- * *
+- *  * ============================================================================
+- *  * Created by PhpStorm.
+- *  * User: Ice
+- *  * 邮箱: ice@sbing.vip
+- *  * 网址: https://sbing.vip
+- *  * Date: 2019/9/19 下午5:05
+- *  * ============================================================================.
+- */
+ 
+ namespace app\admin\library\traits;
+ 
++use app\admin\model\User;
+ use think\Exception;
+ use think\facade\Db;
+ use app\admin\library\Auth;
+@@ -183,9 +174,13 @@
+                 try {
+                     //是否采用模型验证
+                     if ($this->modelValidate) {
+-                        $name = str_replace('\\model\\', '\\validate\\', get_class($this->model));
+-                        $validate = is_bool($this->modelValidate) ? ($this->modelSceneValidate ? $name.'.edit' : $name) : $this->modelValidate;
+-                        $row->validateFailException(true)->validate($validate);
++                        $name     = str_replace('\\model\\', '\\validate\\', get_class($this->model));
++                        $validate = is_bool($this->modelValidate) ? $name : $this->modelValidate;
++                        $pk       = $row->getPk();
++                        if (!isset($params[$pk])) {
++                            $params[$pk] = $row->$pk;
++                        }
++                        validate($validate)->scene($this->modelSceneValidate ? 'edit' : $name)->check($params);
+                     }
+                     $result = $row->save($params);
+                     Db::commit();
+Index: app/admin/validate/User.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/validate/User.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/validate/User.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -10,7 +10,18 @@
+      * 验证规则.
+      */
+     protected $rule = [
++        'username' => 'require|regex:\w{3,32}|unique:user',
++        'nickname' => 'require|unique:user',
++        'password' => 'regex:\S{6,32}',
++        'email'    => 'require|email|unique:user',
++        'mobile'   => 'unique:user',
+     ];
++    /**
++     * 字段描述
++     */
++    protected $field = [
++    ];
++
+     /**
+      * 提示消息.
+      */
+@@ -21,6 +32,18 @@
+      */
+     protected $scene = [
+         'add'  => [],
+-        'edit' => [],
++        'edit' => ['username', 'email', 'nickname', 'password', 'email', 'mobile'],
+     ];
++
++    public function __construct()
++    {
++        $this->field = [
++            'username' => __('Username'),
++            'nickname' => __('Nickname'),
++            'password' => __('Password'),
++            'email'    => __('Email'),
++            'mobile'   => __('Mobile'),
++        ];
++        parent::__construct();
++    }
+ }
+Index: app/admin/view/user/user/edit.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/admin/view/user/user/edit.html	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/admin/view/user/user/edit.html	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1,5 +1,6 @@
+ <form id="edit-form" class="form-horizontal" role="form" data-toggle="validator" method="POST" action="">
+ 
++    {:input_token()}
+     <div class="form-group">
+         <label for="c-group_id" class="control-label col-xs-12 col-sm-2">{:__('Group')}:</label>
+         <div class="col-xs-12 col-sm-4">
+Index: app/api/controller/Common.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/api/controller/Common.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/api/controller/Common.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1,15 +1,4 @@
+ <?php
+-/**
+- * *
+- *  * ============================================================================
+- *  * Created by PhpStorm.
+- *  * User: Ice
+- *  * 邮箱: ice@sbing.vip
+- *  * 网址: https://sbing.vip
+- *  * Date: 2019/9/19 下午3:33
+- *  * ============================================================================.
+- */
+-
+ namespace app\api\controller;
+ 
+ use think\facade\Config;
+@@ -17,6 +6,7 @@
+ use app\common\model\Version;
+ use app\common\controller\Api;
+ use app\common\model\Attachment;
++use think\facade\Event;
+ 
+ /**
+  * 公共接口.
+@@ -112,15 +102,20 @@
+         $_validate[] = 'filesize:'.$size;
+         if ($upload['mimetype']) {
+             $_validate[] = 'fileExt:'.$upload['mimetype'];
+-        } else {
+-            $_validate[] = 'fileExt:jpg,png,gif,jpeg,bmp,webp';
+         }
+         $validate = implode('|', $_validate);
++
++        $event_config = Event::trigger('upload_init', $upload,true);
++        if($event_config){
++            $upload = array_merge($upload, $event_config);
++        }
++
+         try {
+-            $savename = upload_file($file, 'public', $upload['uploaddir'], $validate);
++            $savename = upload_file($file, $upload['driver'], 'uploads', $validate, $upload['cdnurl']);
++            //$savename = upload_file($file, 'public', $upload['uploaddir'], $validate);
+         } catch (\Exception $e) {
+             $savename = false;
+-            $this->error($e->getMessage().$validate);
++            $this->error($e->getMessage());
+         }
+         if (! $savename) {
+             $this->error('上传失败');
+@@ -136,7 +131,7 @@
+             'mimetype'    => $fileInfo['type'],
+             'url'         => $savename,
+             'uploadtime'  => time(),
+-            'storage'     => 'local',
++            'storage'     => $upload['driver'],
+             'sha1'        => $sha1,
+         ];
+         $attachment = new Attachment();
+Index: app/common.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/common.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/common.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1029,7 +1029,7 @@
+      * @return string|bool
+      * @author niu
+      */
+-    function upload_file($file = null, $name = 'local', $path = '', $validate = '')
++    function upload_file($file = null, $name = 'local', $path = '', $validate = '', $url = '/')
+     {
+         //文件
+         if (! $file) {
+@@ -1049,10 +1049,10 @@
+             //重命名
+             return date('Ymd').'/'.md5((string) microtime(true));
+         });
+-        if (isset($filesystem['url'])) {
+-            $savename = $filesystem['url'].$savename;
++        if(empty($url)){
++            $url = '/';
+         }
+-
++        $savename = $url.$savename;
+         return $savename;
+     }
+ }
+Index: app/common/library/Email.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/common/library/Email.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/common/library/Email.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1,17 +1,8 @@
+ <?php
+-/**
+- * *
+- *  * ============================================================================
+- *  * Created by PhpStorm.
+- *  * User: Ice
+- *  * 邮箱: ice@sbing.vip
+- *  * 网址: https://sbing.vip
+- *  * Date: 2019/9/19 下午3:33
+- *  * ============================================================================.
+- */
+-
+ namespace app\common\library;
+ 
++use PHPMailer\PHPMailer\Exception;
++use PHPMailer\PHPMailer\PHPMailer;
+ use think\facade\Config;
+ 
+ class Email
+@@ -24,7 +15,7 @@
+     /**
+      * phpmailer对象
+      */
+-    protected $mail = [];
++    protected $mail;
+ 
+     /**
+      * 错误内容.
+@@ -68,7 +59,7 @@
+         $this->options = array_merge($this->options, $options);
+         $securArr = [1 => 'tls', 2 => 'ssl'];
+ 
+-        $this->mail = new \PHPMailer(true);
++        $this->mail = new PHPMailer(true);
+         $this->mail->CharSet = $this->options['charset'];
+         $this->mail->SMTPDebug = $this->options['debug'];
+         $this->mail->isSMTP();
+@@ -107,7 +98,7 @@
+      */
+     public function from($email, $name = '')
+     {
+-        $this->options['from'] = $email;
++        $this->options['from']      = $email;
+         $this->options['from_name'] = $name;
+ 
+         return $this;
+@@ -123,7 +114,7 @@
+      */
+     public function to($email, $name = '')
+     {
+-        $this->options['to'] = $email;
++        $this->options['to']      = $email;
+         $this->options['to_name'] = $name;
+ 
+         return $this;
+@@ -187,7 +178,7 @@
+ 
+                 try {
+                     $result = $this->mail->send();
+-                } catch (\phpmailerException $e) {
++                } catch (Exception $e) {
+                     $this->setError($e->getMessage());
+                 }
+ 
+@@ -199,7 +190,7 @@
+                 $headers .= 'Content-type: text/html; charset='.$this->options['charset']."\r\n";
+                 $headers .= "To: {$this->options['to_name']} <{$this->options['to']}>\r\n"; //收件人
+                 $headers .= "From: {$this->options['from_name']} <{$this->options['from']}>\r\n"; //发件人
+-                $result = mail($this->options['to'], $this->options['subject'], $this->options['body'], $headers);
++                $result   = mail($this->options['to'], $this->options['subject'], $this->options['body'], $headers);
+                 $this->setError($result ? '' : error_get_last()['message']);
+                 break;
+             default:
+Index: app/common/model/User.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/common/model/User.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/common/model/User.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -99,7 +99,8 @@
+         $user = self::find($user_id);
+         if ($user && $money != 0) {
+             $before = $user->money;
+-            $after = $user->money + $money;
++            //$after = $user->money + $money;
++            $after = function_exists('bcadd') ? bcadd($user->money, $money, 2) : $user->money + $money;
+             //更新会员信息
+             $user->save(['money' => $after]);
+             //写入日志
+Index: app/common/view/tpl/dispatch_jump.tpl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/common/view/tpl/dispatch_jump.tpl	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ app/common/view/tpl/dispatch_jump.tpl	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -53,7 +53,8 @@
+             var interval = setInterval(function () {
+                 var time = --wait.innerHTML;
+                 if (time <= 0) {
+-					location.href = history.length <= 1 ? "/" : "{$url}";
++					//location.href = history.length <= 1 ? "/" : "{$url}";
++                    location.href = "{$url}";
+                     clearInterval(interval);
+                 }
+             }, 1000);
+Index: composer.json
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- composer.json	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ composer.json	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -17,18 +17,18 @@
+         }
+     ],
+     "require": {
+-        "php": ">=7.1.0",
++        "php": ">=7.2.0",
+         "topthink/framework": "^6.0",
+         "topthink/think-orm": "^2.0",
+         "topthink/think-view": "^1.0",
+         "topthink/think-captcha": "^3.0",
+         "overtrue/pinyin": "^4.0",
+-        "dragonmantank/cron-expression": "^1.2",
++        "dragonmantank/cron-expression": "^2.3",
+         "topthink/think-multi-app": "^1.0",
+-        "overtrue/wechat": "~3.1",
++        "overtrue/wechat": "~4.2",
+         "endroid/qr-code": "^1.9",
+         "phpmailer/phpmailer": "~6.1",
+-        "phpoffice/phpspreadsheet": "^1.2",
++        "phpoffice/phpspreadsheet": "^1.13",
+         "topthink/think-queue": "^3.0",
+         "topthink/think-trace": "^1.3",
+         "topthink/think-throttle": "^1.1",
+Index: config/fastadmin.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- config/fastadmin.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ config/fastadmin.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -22,7 +22,7 @@
+     //API是否允许跨域
+     'api_cross' => false,
+     //版本号
+-    'version' => '3.0.0',
++    'version' => '3.0.2',
+     //API接口地址
+     'api_url' => 'https://api.iuok.cn',
+ ];
+Index: config/filesystem.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- config/filesystem.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ config/filesystem.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -8,6 +8,8 @@
+         'local'  => [
+             'type' => 'local',
+             'root' => app()->getRuntimePath().'storage',
++            'url'        => '/',
++            'visibility' => 'public',
+         ],
+         'runtime'  => [
+             'type' => 'local',
+Index: config/upload.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- config/upload.php	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ config/upload.php	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -3,6 +3,10 @@
+ //上传配置
+ return [
+     /*
++     * 引擎
++     */
++    'driver' => 'local',
++    /*
+      * 上传地址,默认是本地上传
+      */
+     'uploadurl' => 'ajax/upload',
+Index: public/assets/css/backend.css
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- public/assets/css/backend.css	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ public/assets/css/backend.css	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1006,4 +1006,11 @@
+   text-align: center;
+   display: inline-block;
+ }
++.sidebar-menu li.treeview-open > a > .fa-angle-left,
++.sidebar-menu li.treeview-open > a > .pull-right-container > .fa-angle-left {
++  -webkit-transform: rotate(-90deg);
++  -ms-transform: rotate(-90deg);
++  -o-transform: rotate(-90deg);
++  transform: rotate(-90deg);
++}
+ /*# sourceMappingURL=backend.css.map */
+\ No newline at end of file
+Index: public/assets/js/require-backend.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- public/assets/js/require-backend.js	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ public/assets/js/require-backend.js	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -139,7 +139,8 @@
+     window.Config = Config;
+     // 配置语言包的路径
+     var paths = {};
+-    paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername;
++    //paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername;
++    paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername + '&lang=' + Config.language + '&v=' + Config.site.version;
+     // 避免目录冲突
+     paths['backend/'] = 'backend/';
+     require.config({paths: paths});
+Index: public/assets/js/require-frontend.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- public/assets/js/require-frontend.js	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ public/assets/js/require-frontend.js	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -138,7 +138,8 @@
+     window.Config = Config;
+     // 配置语言包的路径
+     var paths = {};
+-    paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername;
++    //paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername;
++    paths['lang'] = Config.moduleurl + '/ajax/lang?callback=define&controllername=' + Config.controllername + '&lang=' + Config.language + '&v=' + Config.site.version;
+     // 避免目录冲突
+     paths['frontend/'] = 'frontend/';
+     require.config({paths: paths});
+Index: public/assets/js/require-table.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- public/assets/js/require-table.js	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ public/assets/js/require-table.js	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -28,7 +28,7 @@
+             singleSelect: false, //是否启用单选
+             showRefresh: false,
+             showJumpto: true,
+-            locale: 'zh-CN',
++            locale: Config.language == 'zh-cn' ? 'zh-CN' : 'en-US',
+             showToggle: true,
+             showColumns: true,
+             pk: 'id',
+Index: public/assets/less/backend.less
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- public/assets/less/backend.less	(revision 508a0857ded282b1cdcf4c2a37c4974d17d910d7)
++++ public/assets/less/backend.less	(revision f273e5b81d24c4755c026af0e213ff0d5b19a702)
+@@ -1255,4 +1255,11 @@
+   margin-right: 5px;
+   text-align: center;
+   display: inline-block;
++}
++
++.sidebar-menu li.treeview-open > a > .fa-angle-left, .sidebar-menu li.treeview-open > a > .pull-right-container > .fa-angle-left {
++   -webkit-transform: rotate(-90deg);
++   -ms-transform: rotate(-90deg);
++   -o-transform: rotate(-90deg);
++   transform: rotate(-90deg);
+ }
+\ No newline at end of file
